@@ -13,17 +13,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-jdk@v4
-        with:
-          java-version: 17
-          distribution: temurin
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Build Debug APK
         run: |
+          java -version
           gradle wrapper --gradle-version 8.7
           chmod +x gradlew
           ./gradlew assembleDebug
