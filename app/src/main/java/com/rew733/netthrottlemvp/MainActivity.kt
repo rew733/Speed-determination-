@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var adapter: AppAdapter
     private var isThrottlingActive = false
+    private var selectedSpeedKbps: Int = 150
 
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -56,6 +57,16 @@ class MainActivity : AppCompatActivity() {
             adapter.filter(text?.toString().orEmpty())
         }
 
+        binding.sliderSpeedLimit.value = selectedSpeedKbps.toFloat()
+        binding.sliderSpeedLimit.addOnChangeListener { _, value, fromUser ->
+            selectedSpeedKbps = value.toInt()
+            updateLimitLabel()
+            if (fromUser && isThrottlingActive) {
+                sendRateUpdate(selectedSpeedKbps)
+            }
+            updateUiState()
+        }
+
         binding.btnToggle.setOnClickListener {
             if (isThrottlingActive) {
                 stopThrottleService()
@@ -64,7 +75,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        updateLimitLabel()
         updateUiState()
+    }
+
+    private fun updateLimitLabel() {
+        binding.tvLimitInfo.text = getString(R.string.limit_format, selectedSpeedKbps)
     }
 
     private fun loadInstalledApps() {
@@ -119,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, ThrottleVpnService::class.java).apply {
             action = ThrottleVpnService.ACTION_START
             putStringArrayListExtra(ThrottleVpnService.EXTRA_PACKAGES, selected)
+            putExtra(ThrottleVpnService.EXTRA_SPEED_KBPS, selectedSpeedKbps)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -129,6 +146,14 @@ class MainActivity : AppCompatActivity() {
 
         isThrottlingActive = true
         updateUiState()
+    }
+
+    private fun sendRateUpdate(speedKbps: Int) {
+        val intent = Intent(this, ThrottleVpnService::class.java).apply {
+            action = ThrottleVpnService.ACTION_UPDATE_RATE
+            putExtra(ThrottleVpnService.EXTRA_SPEED_KBPS, speedKbps)
+        }
+        startService(intent)
     }
 
     private fun stopThrottleService() {
@@ -144,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         val count = adapter.getSelectedPackages().size
         if (isThrottlingActive) {
             binding.btnToggle.text = getString(R.string.stop_throttle)
-            binding.tvStatus.text = "${getString(R.string.status_active)} ($count)"
+            binding.tvStatus.text = getString(R.string.status_active_format, count, selectedSpeedKbps)
         } else {
             binding.btnToggle.text = getString(R.string.start_throttle)
             binding.tvStatus.text = if (count > 0) {
