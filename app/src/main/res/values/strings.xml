@@ -1,11 +1,11 @@
 <resources>
     <string name="app_name">NetThrottle MVP</string>
     <string name="search_hint">ابحث عن تطبيق...</string>
-    <string name="limit_label">الحد المبدئي: 150 KB/s</string>
+    <string name="limit_format">حد السرعة: %1$d KB/s</string>
     <string name="start_throttle">تشغيل التحديد</string>
     <string name="stop_throttle">إيقاف التحديد</string>
     <string name="status_idle">متوقف — لا يوجد تقييد نشط</string>
-    <string name="status_active">نشط — تقييد التطبيقات المحددة عند 150 KB/s</string>
+    <string name="status_active_format">نشط (%1$d تطبيق) — الحد %2$d KB/s</string>
     <string name="notif_title">محدد سرعة التطبيقات نشط</string>
-    <string name="notif_text">تقييد السرعة عند 150 KB/s للتطبيقات المحددة</string>
+    <string name="notif_text_format">تقييد السرعة عند %1$d KB/s للتطبيقات المحددة</string>
 </resources>
