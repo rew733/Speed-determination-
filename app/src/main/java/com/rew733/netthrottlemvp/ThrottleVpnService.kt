@@ -33,10 +33,8 @@ class ThrottleVpnService : VpnService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tunnelJob: Job? = null
     private var vpnInterface: ParcelFileDescriptor? = null
-    private val limiter = TokenBucketLimiter(
-        bytesPerSecond = 150L * 1024L,
-        burstCapacity = 150L * 1024L
-    )
+    private var currentLimitKbps: Int = 150
+    private val limiter = TokenBucketLimiter(initialBytesPerSecond = 150L * 1024L)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -45,11 +43,27 @@ class ThrottleVpnService : VpnService() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_UPDATE_RATE -> {
+                val newKbps = intent.getIntExtra(EXTRA_SPEED_KBPS, currentLimitKbps)
+                    .coerceIn(50, 2050)
+                currentLimitKbps = newKbps
+                serviceScope.launch {
+                    limiter.setRateBytesPerSecond(newKbps.toLong() * 1024L)
+                }
+                if (vpnInterface != null) {
+                    startForegroundNotification(newKbps)
+                }
+                return START_STICKY
+            }
             ACTION_START, null -> {
                 val targetPackages = intent?.getStringArrayListExtra(EXTRA_PACKAGES)
                     ?.filter { it.isNotBlank() && it != packageName }
                     ?.distinct()
                     ?: emptyList()
+
+                val speedKbps = intent?.getIntExtra(EXTRA_SPEED_KBPS, 150)
+                    ?.coerceIn(50, 2050)
+                    ?: 150
 
                 if (targetPackages.isEmpty()) {
                     stopTunnel()
@@ -57,7 +71,12 @@ class ThrottleVpnService : VpnService() {
                     return START_NOT_STICKY
                 }
 
-                startForegroundNotification()
+                currentLimitKbps = speedKbps
+                serviceScope.launch {
+                    limiter.setRateBytesPerSecond(speedKbps.toLong() * 1024L)
+                }
+
+                startForegroundNotification(speedKbps)
                 startTunnel(targetPackages)
                 return START_STICKY
             }
@@ -181,7 +200,7 @@ class ThrottleVpnService : VpnService() {
                 if (version != 4 || ihl < 20 || readBytes < ihl + 8) continue
 
                 val protocol = packetBuffer[9].toInt() and 0xFF
-                if (protocol != 17) continue // UDP handling in MVP
+                if (protocol != 17) continue
 
                 val srcIp = packetBuffer.copyOfRange(12, 16)
                 val dstIp = packetBuffer.copyOfRange(16, 20)
@@ -247,7 +266,7 @@ class ThrottleVpnService : VpnService() {
         buf.putShort(0x4000.toShort())
         buf.put(64.toByte())
         buf.put(17.toByte())
-        buf.putShort(0) // IP checksum placeholder
+        buf.putShort(0)
         buf.put(srcIp)
         buf.put(dstIp)
 
@@ -258,7 +277,7 @@ class ThrottleVpnService : VpnService() {
         buf.putShort(srcPort.toShort())
         buf.putShort(dstPort.toShort())
         buf.putShort(udpTotalLen.toShort())
-        buf.putShort(0) // UDP checksum optional in IPv4
+        buf.putShort(0)
         buf.put(payload, 0, payloadLen)
 
         return buf.array()
@@ -292,7 +311,7 @@ class ThrottleVpnService : VpnService() {
         vpnInterface = null
     }
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotification(speedKbps: Int) {
         val channelId = "net_throttle_mvp_channel"
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -318,7 +337,7 @@ class ThrottleVpnService : VpnService() {
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentTitle(getString(R.string.notif_title))
-            .setContentText(getString(R.string.notif_text))
+            .setContentText(getString(R.string.notif_text_format, speedKbps))
             .setContentIntent(pendingOpen)
             .setOngoing(true)
             .build()
@@ -345,6 +364,8 @@ class ThrottleVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1001
         const val ACTION_START = "com.rew733.netthrottlemvp.action.START"
         const val ACTION_STOP = "com.rew733.netthrottlemvp.action.STOP"
+        const val ACTION_UPDATE_RATE = "com.rew733.netthrottlemvp.action.UPDATE_RATE"
         const val EXTRA_PACKAGES = "com.rew733.netthrottlemvp.extra.PACKAGES"
+        const val EXTRA_SPEED_KBPS = "com.rew733.netthrottlemvp.extra.SPEED_KBPS"
     }
 }
