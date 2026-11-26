@@ -5,23 +5,32 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class TokenBucketLimiter(
-    private val bytesPerSecond: Long = 150L * 1024L,
-    private val burstCapacity: Long = 150L * 1024L
+    initialBytesPerSecond: Long = 150L * 1024L
 ) {
     private val mutex = Mutex()
+    private var bytesPerSecond: Long = initialBytesPerSecond.coerceAtLeast(10L * 1024L)
+    private var burstCapacity: Long = bytesPerSecond
     private var tokens: Double = burstCapacity.toDouble()
     private var lastRefillNano: Long = System.nanoTime()
 
-    suspend fun acquire(requestedBytes: Int) {
-        if (requestedBytes <= 0 || bytesPerSecond <= 0L) return
+    suspend fun setRateBytesPerSecond(newBytesPerSecond: Long) {
+        mutex.withLock {
+            refillLocked()
+            bytesPerSecond = newBytesPerSecond.coerceAtLeast(10L * 1024L)
+            burstCapacity = bytesPerSecond
+            tokens = tokens.coerceAtMost(burstCapacity.toDouble())
+        }
+    }
 
-        val target = requestedBytes.toDouble().coerceAtMost(burstCapacity.toDouble())
+    suspend fun acquire(requestedBytes: Int) {
+        if (requestedBytes <= 0) return
 
         while (true) {
             var sleepMs = 0L
 
             mutex.withLock {
                 refillLocked()
+                val target = requestedBytes.toDouble().coerceAtMost(burstCapacity.toDouble())
                 if (tokens >= target) {
                     tokens -= target
                     return
